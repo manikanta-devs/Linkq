@@ -246,7 +246,13 @@
       padding: 1rem;
       box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
       display: block;
+      width: fit-content;
       margin: 0 auto;
+    }
+    
+    .qr-canvas img,
+    .qr-canvas canvas {
+      display: block;
     }
     
     .share-url {
@@ -387,7 +393,7 @@
     <div class="container" id="container"></div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
+  <script src="./qrcode.min.js"></script>
   <script>
     const createStorageAdapter = () => {
       if (window.storage && typeof window.storage.get === 'function') {
@@ -578,7 +584,7 @@
         const url = this.shareUrl;
         return `
           <div class="card">
-            <canvas id="qrCanvas" class="qr-canvas" width="220" height="220"></canvas>
+            <div id="qrCanvas" class="qr-canvas"></div>
             
             <div class="share-url">
               <span class="share-url-text">${url}</span>
@@ -805,36 +811,24 @@
       },
       
       drawQR() {
-        const canvas = document.getElementById('qrCanvas');
-        if (!canvas || !this.shareUrl) return;
+        const qrContainer = document.getElementById('qrCanvas');
+        if (!qrContainer || !this.shareUrl) return;
         
-        if (window.QRCode && typeof window.QRCode.toCanvas === 'function') {
-          window.QRCode.toCanvas(canvas, this.shareUrl, {
+        qrContainer.innerHTML = '';
+        
+        if (window.QRCode) {
+          new window.QRCode(qrContainer, {
+            text: this.shareUrl,
             width: 220,
-            margin: 1,
-            color: {
-              dark: '#000000',
-              light: '#FFFFFF'
-            }
-          }, (error) => {
-            if (error) {
-              const ctx = canvas.getContext('2d');
-              ctx.fillStyle = '#FFFFFF';
-              ctx.fillRect(0, 0, canvas.width, canvas.height);
-              ctx.fillStyle = '#000000';
-              ctx.font = '12px monospace';
-              ctx.fillText('QR generation failed', 24, 110);
-            }
+            height: 220,
+            colorDark: '#000000',
+            colorLight: '#FFFFFF',
+            correctLevel: window.QRCode.CorrectLevel.M
           });
           return;
         }
         
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#000000';
-        ctx.font = '12px monospace';
-        ctx.fillText('QR library unavailable', 30, 110);
+        qrContainer.innerHTML = '<div style="color:#000; font-size:12px; font-family:monospace; text-align:center; width:220px; height:220px; display:flex; align-items:center; justify-content:center;">QR library unavailable</div>';
       },
       
       async nativeShare() {
@@ -857,8 +851,14 @@
       },
       
       downloadQR() {
-        const canvas = document.getElementById('qrCanvas');
-        const url = canvas.toDataURL('image/png');
+        const qrContainer = document.getElementById('qrCanvas');
+        const canvas = qrContainer ? qrContainer.querySelector('canvas') : null;
+        const image = qrContainer ? qrContainer.querySelector('img') : null;
+        const url = canvas ? canvas.toDataURL('image/png') : image ? image.src : null;
+        if (!url) {
+          alert('QR code is not ready yet.');
+          return;
+        }
         const a = document.createElement('a');
         a.href = url;
         a.download = 'linklock-' + this.currentId + '.png';
