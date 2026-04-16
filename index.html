@@ -455,6 +455,7 @@
       storage: createStorageAdapter(),
       
       init() {
+        const hash = window.location.hash;
         const viewRoute = this.parseViewHash(window.location.hash);
         if (viewRoute) {
           this.currentId = viewRoute.id;
