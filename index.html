@@ -448,22 +448,75 @@
     const app = {
       mode: 'upload',
       currentId: '',
+      currentEmbeddedShare: null,
       fileData: null,
       fileReadPromise: null,
       allShares: [],
       storage: createStorageAdapter(),
       
       init() {
-        // Check URL hash
-        const hash = window.location.hash;
-        if (hash.startsWith('#view/')) {
-          this.currentId = hash.replace('#view/', '');
+        const viewRoute = this.parseViewHash(window.location.hash);
+        if (viewRoute) {
+          this.currentId = viewRoute.id;
+          this.currentEmbeddedShare = viewRoute.embeddedShare;
           this.setMode('view');
         } else if (hash === '#dashboard') {
+          this.currentEmbeddedShare = null;
           this.setMode('dashboard');
         } else {
+          this.currentEmbeddedShare = null;
           this.render();
         }
+      },
+
+      parseViewHash(hash) {
+        if (!hash || !hash.startsWith('#view/')) return null;
+        const raw = hash.slice(6);
+        const queryStart = raw.indexOf('?');
+        const rawId = queryStart === -1 ? raw : raw.slice(0, queryStart);
+        const id = decodeURIComponent(rawId || '').trim();
+        if (!id) return null;
+        let embeddedShare = null;
+        if (queryStart !== -1) {
+          const params = new URLSearchParams(raw.slice(queryStart + 1));
+          embeddedShare = this.decodeSharePayload(params.get('d'));
+        }
+        return { id, embeddedShare };
+      },
+
+      decodeSharePayload(payload) {
+        if (!payload) return null;
+        try {
+          const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+          const padding = (4 - (normalized.length % 4)) % 4;
+          const base64 = normalized + '='.repeat(padding);
+          const binary = atob(base64);
+          const bytes = Uint8Array.from(binary, ch => ch.charCodeAt(0));
+          const json = new TextDecoder().decode(bytes);
+          const parsed = JSON.parse(json);
+          return parsed && parsed.id && parsed.content && parsed.rules ? parsed : null;
+        } catch (error) {
+          return null;
+        }
+      },
+
+      encodeSharePayload(share) {
+        try {
+          const json = JSON.stringify(share);
+          const bytes = new TextEncoder().encode(json);
+          let binary = '';
+          for (const byte of bytes) binary += String.fromCharCode(byte);
+          return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+        } catch (error) {
+          return null;
+        }
+      },
+
+      buildShareUrl(id, share) {
+        const baseUrl = window.location.origin + window.location.pathname + '#view/' + encodeURIComponent(id);
+        const payload = this.encodeSharePayload(share);
+        if (!payload || payload.length > 1800) return baseUrl;
+        return baseUrl + '?d=' + payload;
       },
       
       setMode(mode) {
@@ -645,17 +698,26 @@
           return;
         }
         
-        let share;
+        let share = this.currentEmbeddedShare && this.currentEmbeddedShare.id === id
+          ? JSON.parse(JSON.stringify(this.currentEmbeddedShare))
+          : null;
         try {
           const result = await this.storage.get(id);
-          if (!result || !result.value) {
+          if (result && result.value) {
+            share = JSON.parse(result.value);
+          } else if (!share) {
             container.innerHTML = this.renderViewError('🔍', 'Not Found', 'This share does not exist or has already been deleted.');
             return;
           }
-          share = JSON.parse(result.value);
         } catch (e) {
-          container.innerHTML = this.renderViewError('⚠️', 'Error', 'Failed to load share data. Please try again.');
-          return;
+          if (!share) {
+            container.innerHTML = this.renderViewError('⚠️', 'Error', 'Failed to load share data. Please try again.');
+            return;
+          }
+        }
+
+        if (!share.stats) {
+          share.stats = { viewCount: 0, createdAt: Date.now(), lastAccessed: null };
         }
         
         // Check expiry
@@ -869,7 +931,7 @@
         }
         
         const sharesHtml = this.allShares.map(share => {
-          const url = window.location.origin + window.location.pathname + '#view/' + share.id;
+          const url = this.buildShareUrl(share.id, share);
           const isExpired = share.rules.expiryTime && Date.now() > share.rules.expiryTime;
           const isLimitReached = share.rules.maxViews !== -1 && share.stats.viewCount >= share.rules.maxViews;
           
@@ -1049,7 +1111,7 @@
         ownerList.push(id);
         await this.storage.set('owner_list', JSON.stringify(ownerList));
         
-        this.shareUrl = window.location.origin + window.location.pathname + '#view/' + id;
+        this.shareUrl = this.buildShareUrl(id, contentObj);
         this.currentId = id;
         this.mode = 'share';
         this.render();
