@@ -255,6 +255,18 @@
       display: block;
     }
     
+    .qr-fallback-message {
+      color: #000;
+      font-size: 12px;
+      font-family: monospace;
+      text-align: center;
+      width: 220px;
+      height: 220px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
     .share-url {
       width: 100%;
       background: rgba(255, 255, 255, 0.05);
@@ -393,6 +405,7 @@
     <div class="container" id="container"></div>
   </div>
 
+  <!-- Bundled free QR library (MIT): davidshimjs/qrcodejs qrcode.min.js @ 04f46c6 -->
   <script src="./qrcode.min.js"></script>
   <script>
     const createStorageAdapter = () => {
@@ -407,7 +420,7 @@
             const value = window.localStorage.getItem(prefix + key);
             return { value };
           } catch (error) {
-            console.warn('Local storage read failed:', error);
+            console.warn('Local storage read failed for key:', key, error);
             return { value: null };
           }
         },
@@ -829,7 +842,7 @@
           return;
         }
         
-        qrContainer.innerHTML = '<div style="color:#000; font-size:12px; font-family:monospace; text-align:center; width:220px; height:220px; display:flex; align-items:center; justify-content:center;">Unable to generate QR code. Please refresh and try again.</div>';
+        qrContainer.innerHTML = '<div class="qr-fallback-message">Unable to generate QR code. Please refresh and try again.</div>';
       },
       
       async nativeShare() {
@@ -846,6 +859,7 @@
           });
         } catch (error) {
           if (error && error.name !== 'AbortError') {
+            console.warn('Native share failed:', error);
             alert('Unable to open native share dialog. Please use Copy URL instead.');
           }
         }
