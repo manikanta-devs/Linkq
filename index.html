@@ -407,6 +407,7 @@
             const value = window.localStorage.getItem(prefix + key);
             return { value };
           } catch (error) {
+            console.warn('Local storage read failed:', error);
             return { value: null };
           }
         },
@@ -828,7 +829,7 @@
           return;
         }
         
-        qrContainer.innerHTML = '<div style="color:#000; font-size:12px; font-family:monospace; text-align:center; width:220px; height:220px; display:flex; align-items:center; justify-content:center;">QR library unavailable</div>';
+        qrContainer.innerHTML = '<div style="color:#000; font-size:12px; font-family:monospace; text-align:center; width:220px; height:220px; display:flex; align-items:center; justify-content:center;">Unable to generate QR code. Please refresh and try again.</div>';
       },
       
       async nativeShare() {
@@ -845,7 +846,7 @@
           });
         } catch (error) {
           if (error && error.name !== 'AbortError') {
-            alert('Unable to open native share dialog.');
+            alert('Unable to open native share dialog. Please use Copy URL instead.');
           }
         }
       },
