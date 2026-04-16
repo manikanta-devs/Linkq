@@ -235,7 +235,7 @@
     
     .buttons-row {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-columns: repeat(4, 1fr);
       gap: 1rem;
       margin-top: 1.5rem;
     }
@@ -246,7 +246,25 @@
       padding: 1rem;
       box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
       display: block;
+      width: fit-content;
       margin: 0 auto;
+    }
+    
+    .qr-canvas img,
+    .qr-canvas canvas {
+      display: block;
+    }
+    
+    .qr-fallback-message {
+      color: #000;
+      font-size: 12px;
+      font-family: monospace;
+      text-align: center;
+      width: 220px;
+      height: 220px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
     
     .share-url {
@@ -387,12 +405,48 @@
     <div class="container" id="container"></div>
   </div>
 
+  <!-- Bundled free QR library (MIT): davidshimjs/qrcodejs qrcode.min.js @ 04f46c6a0708418cb7b96fc563eacae0fbf77674 -->
+  <script src="./qrcode.min.js"></script>
   <script>
+    const createStorageAdapter = () => {
+      if (window.storage && typeof window.storage.get === 'function') {
+        return window.storage;
+      }
+      
+      const prefix = 'linklock:';
+      return {
+        async get(key) {
+          try {
+            const value = window.localStorage.getItem(prefix + key);
+            return { value };
+          } catch (error) {
+            console.warn('Local storage read failed for key:', key, error);
+            return { value: null };
+          }
+        },
+        async set(key, value) {
+          try {
+            window.localStorage.setItem(prefix + key, value);
+            return true;
+          } catch (error) {
+            console.warn('Local storage write failed for key:', key, error);
+            return false;
+          }
+        },
+        async delete(key) {
+          window.localStorage.removeItem(prefix + key);
+          return true;
+        }
+      };
+    };
+    
     const app = {
       mode: 'upload',
       currentId: '',
       fileData: null,
+      fileReadPromise: null,
       allShares: [],
+      storage: createStorageAdapter(),
       
       init() {
         // Check URL hash
@@ -417,7 +471,7 @@
       
       async loadDashboard() {
         try {
-          const result = await window.storage.get('owner_list');
+          const result = await this.storage.get('owner_list');
           if (!result || !result.value) {
             this.allShares = [];
             return;
@@ -427,7 +481,7 @@
           const shares = [];
           
           for (const id of ownerList) {
-            const shareResult = await window.storage.get(id);
+            const shareResult = await this.storage.get(id);
             if (shareResult && shareResult.value) {
               shares.push(JSON.parse(shareResult.value));
             }
@@ -483,6 +537,9 @@
             <div class="section">
               <div class="section-title">Attach File (Optional)</div>
               <input type="file" id="fileInput" onchange="app.handleFileUpload(event)">
+              <small style="color: #94a3b8; font-size: 0.8rem; display: block; margin-top: 0.5rem;">
+                ${this.fileData ? `Selected: ${this.escapeHtml(this.fileData.name)}` : this.fileReadPromise ? 'Reading file...' : 'No file selected'}
+              </small>
             </div>
             
             <div class="section">
@@ -546,7 +603,7 @@
         const url = this.shareUrl;
         return `
           <div class="card">
-            <canvas id="qrCanvas" class="qr-canvas" width="220" height="220"></canvas>
+            <div id="qrCanvas" class="qr-canvas"></div>
             
             <div class="share-url">
               <span class="share-url-text">${url}</span>
@@ -556,6 +613,7 @@
             <div class="buttons-row">
               <button class="btn btn-secondary" onclick="app.downloadQR()">⬇️ QR</button>
               <button class="btn btn-secondary" onclick="app.shareEmail()">✉️ Email</button>
+              <button class="btn btn-secondary" onclick="app.nativeShare()">📱 Share</button>
               <button class="btn" onclick="app.reset()">📝 New</button>
             </div>
           </div>
@@ -658,21 +716,47 @@
       
       handleFileUpload(event) {
         const file = event.target.files[0];
-        if (!file) return;
+        if (!file) {
+          this.fileData = null;
+          this.fileReadPromise = null;
+          this.render();
+          return;
+        }
         
         const reader = new FileReader();
-        reader.onload = (e) => {
-          this.fileData = {
-            name: file.name,
-            type: file.type,
-            size: file.size,
-            data: e.target.result
+        this.fileReadPromise = new Promise((resolve, reject) => {
+          reader.onload = (e) => {
+            this.fileData = {
+              name: file.name,
+              type: file.type,
+              size: file.size,
+              data: e.target.result
+            };
+            this.fileReadPromise = null;
+            this.render();
+            resolve();
           };
-        };
+          reader.onerror = () => {
+            this.fileData = null;
+            this.fileReadPromise = null;
+            this.render();
+            reject(new Error('File read failed'));
+          };
+        });
         reader.readAsDataURL(file);
+        this.render();
       },
       
       async createShare() {
+        if (this.fileReadPromise) {
+          try {
+            await this.fileReadPromise;
+          } catch (error) {
+            alert('Failed to read the selected file. Please try again.');
+            return;
+          }
+        }
+        
         const textContent = document.getElementById('textContent').value;
         
         if (!textContent && !this.fileData) {
@@ -700,7 +784,7 @@
             return;
           }
           
-          const existing = await window.storage.get(customSlug);
+          const existing = await this.storage.get(customSlug);
           if (existing && existing.value) {
             alert('This slug is already taken');
             return;
@@ -734,12 +818,12 @@
           }
         };
         
-        await window.storage.set(id, JSON.stringify(contentObj));
+        await this.storage.set(id, JSON.stringify(contentObj));
         
-        const ownerListResult = await window.storage.get('owner_list');
+        const ownerListResult = await this.storage.get('owner_list');
         const ownerList = ownerListResult && ownerListResult.value ? JSON.parse(ownerListResult.value) : [];
         ownerList.push(id);
-        await window.storage.set('owner_list', JSON.stringify(ownerList));
+        await this.storage.set('owner_list', JSON.stringify(ownerList));
         
         this.shareUrl = window.location.origin + window.location.pathname + '#view/' + id;
         this.currentId = id;
@@ -748,33 +832,54 @@
       },
       
       drawQR() {
-        const canvas = document.getElementById('qrCanvas');
-        if (!canvas) return;
+        const qrContainer = document.getElementById('qrCanvas');
+        if (!qrContainer || !this.shareUrl) return;
         
-        const ctx = canvas.getContext('2d');
-        const size = 220;
-        const modules = 25;
-        const moduleSize = size / modules;
+        qrContainer.innerHTML = '';
         
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, size, size);
-        ctx.fillStyle = '#000000';
+        if (window.QRCode) {
+          new window.QRCode(qrContainer, {
+            text: this.shareUrl,
+            width: 220,
+            height: 220,
+            colorDark: '#000000',
+            colorLight: '#FFFFFF',
+            correctLevel: window.QRCode.CorrectLevel.H
+          });
+          return;
+        }
         
-        const hash = this.shareUrl.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+        qrContainer.innerHTML = '<div class="qr-fallback-message">Unable to generate QR code. Please refresh and try again.</div>';
+      },
+      
+      async nativeShare() {
+        if (!navigator.share) {
+          alert('Native sharing is not supported on this browser.');
+          return;
+        }
         
-        for (let row = 0; row < modules; row++) {
-          for (let col = 0; col < modules; col++) {
-            const seed = (row * modules + col + hash) % 100;
-            if (seed > 50 || (row < 7 && col < 7) || (row < 7 && col >= modules - 7) || (row >= modules - 7 && col < 7)) {
-              ctx.fillRect(col * moduleSize, row * moduleSize, moduleSize, moduleSize);
-            }
+        try {
+          await navigator.share({
+            title: 'LinkLock Share',
+            text: 'Access my LinkLock share:',
+            url: this.shareUrl
+          });
+        } catch (error) {
+          if (error && error.name !== 'AbortError') {
+            console.warn('Native share failed:', error);
           }
         }
       },
       
       downloadQR() {
-        const canvas = document.getElementById('qrCanvas');
-        const url = canvas.toDataURL('image/png');
+        const qrContainer = document.getElementById('qrCanvas');
+        const canvas = qrContainer ? qrContainer.querySelector('canvas') : null;
+        const image = qrContainer ? qrContainer.querySelector('img') : null;
+        const url = canvas ? canvas.toDataURL('image/png') : image ? image.src : null;
+        if (!url) {
+          alert('QR code is not ready yet.');
+          return;
+        }
         const a = document.createElement('a');
         a.href = url;
         a.download = 'linklock-' + this.currentId + '.png';
@@ -800,13 +905,13 @@
       async deleteShare(id) {
         if (!confirm('Delete this share?')) return;
         
-        await window.storage.delete(id);
+        await this.storage.delete(id);
         
-        const ownerListResult = await window.storage.get('owner_list');
+        const ownerListResult = await this.storage.get('owner_list');
         if (ownerListResult && ownerListResult.value) {
           let ownerList = JSON.parse(ownerListResult.value);
           ownerList = ownerList.filter(shareId => shareId !== id);
-          await window.storage.set('owner_list', JSON.stringify(ownerList));
+          await this.storage.set('owner_list', JSON.stringify(ownerList));
         }
         
         await this.loadDashboard();
@@ -815,6 +920,7 @@
       
       reset() {
         this.fileData = null;
+        this.fileReadPromise = null;
         this.mode = 'upload';
         window.location.hash = '';
         this.render();
@@ -828,6 +934,15 @@
           hash = hash & hash;
         }
         return hash.toString(36);
+      },
+      
+      escapeHtml(value) {
+        return String(value)
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+          .replaceAll('"', '&quot;')
+          .replaceAll("'", '&#39;');
       }
     };
     
