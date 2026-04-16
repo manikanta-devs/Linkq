@@ -405,7 +405,7 @@
     <div class="container" id="container"></div>
   </div>
 
-  <!-- Bundled free QR library (MIT): davidshimjs/qrcodejs qrcode.min.js @ 04f46c6 -->
+  <!-- Bundled free QR library (MIT): davidshimjs/qrcodejs qrcode.min.js @ 04f46c6a0708418cb7b96fc563eacae0fbf77674 -->
   <script src="./qrcode.min.js"></script>
   <script>
     const createStorageAdapter = () => {
@@ -425,8 +425,13 @@
           }
         },
         async set(key, value) {
-          window.localStorage.setItem(prefix + key, value);
-          return true;
+          try {
+            window.localStorage.setItem(prefix + key, value);
+            return true;
+          } catch (error) {
+            console.warn('Local storage write failed for key:', key, error);
+            return false;
+          }
         },
         async delete(key) {
           window.localStorage.removeItem(prefix + key);
@@ -533,7 +538,7 @@
               <div class="section-title">Attach File (Optional)</div>
               <input type="file" id="fileInput" onchange="app.handleFileUpload(event)">
               <small style="color: #94a3b8; font-size: 0.8rem; display: block; margin-top: 0.5rem;">
-                ${this.fileData ? `Selected: ${this.fileData.name}` : this.fileReadPromise ? 'Reading file...' : 'No file selected'}
+                ${this.fileData ? `Selected: ${this.escapeHtml(this.fileData.name)}` : this.fileReadPromise ? 'Reading file...' : 'No file selected'}
               </small>
             </div>
             
@@ -728,11 +733,13 @@
               data: e.target.result
             };
             this.fileReadPromise = null;
+            this.render();
             resolve();
           };
           reader.onerror = () => {
             this.fileData = null;
             this.fileReadPromise = null;
+            this.render();
             reject(new Error('File read failed'));
           };
         });
@@ -837,7 +844,7 @@
             height: 220,
             colorDark: '#000000',
             colorLight: '#FFFFFF',
-            correctLevel: window.QRCode.CorrectLevel.M
+            correctLevel: window.QRCode.CorrectLevel.H
           });
           return;
         }
@@ -860,7 +867,6 @@
         } catch (error) {
           if (error && error.name !== 'AbortError') {
             console.warn('Native share failed:', error);
-            alert('Unable to open native share dialog. Please use Copy URL instead.');
           }
         }
       },
@@ -928,6 +934,15 @@
           hash = hash & hash;
         }
         return hash.toString(36);
+      },
+      
+      escapeHtml(value) {
+        return String(value)
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+          .replaceAll('"', '&quot;')
+          .replaceAll("'", '&#39;');
       }
     };
     
