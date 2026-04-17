@@ -384,11 +384,118 @@
       to { opacity: 1; transform: translateY(0); }
     }
     
+    /* ── Auth styles ── */
+    .auth-card {
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 20px;
+      padding: 2.5rem 2rem;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      width: 100%;
+      max-width: 420px;
+      margin: 0 auto;
+    }
+
+    .auth-title {
+      font-size: 1.6rem;
+      font-weight: 700;
+      text-align: center;
+      margin-bottom: 0.4rem;
+    }
+
+    .auth-subtitle {
+      font-size: 0.9rem;
+      color: #94a3b8;
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    .input-group {
+      margin-bottom: 1.2rem;
+    }
+
+    .input-group label {
+      display: block;
+      font-size: 0.85rem;
+      color: #cbd5e1;
+      margin-bottom: 0.5rem;
+      font-weight: 600;
+    }
+
+    .auth-error {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      border-radius: 10px;
+      padding: 0.65rem 1rem;
+      color: #fca5a5;
+      font-size: 0.85rem;
+      margin-bottom: 1.2rem;
+    }
+
+    .auth-success {
+      background: rgba(34, 197, 94, 0.1);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+      border-radius: 10px;
+      padding: 0.65rem 1rem;
+      color: #86efac;
+      font-size: 0.85rem;
+      margin-bottom: 1.2rem;
+    }
+
+    .auth-switch {
+      text-align: center;
+      margin-top: 1.5rem;
+      font-size: 0.9rem;
+      color: #94a3b8;
+    }
+
+    .auth-switch a {
+      color: #3b82f6;
+      cursor: pointer;
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .auth-switch a:hover {
+      text-decoration: underline;
+    }
+
+    .user-badge {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.4rem 1rem;
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 20px;
+      font-size: 0.85rem;
+      color: #e2e8f0;
+    }
+
+    .user-badge-name {
+      font-weight: 600;
+      color: #3b82f6;
+    }
+
+    .header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      max-width: 900px;
+      margin-top: 1rem;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+
     @media (max-width: 640px) {
       h1 { font-size: 2rem; }
       .card { padding: 1.5rem; }
       .buttons-row { grid-template-columns: 1fr; }
       .stats-grid { grid-template-columns: 1fr; }
+      .auth-card { padding: 1.5rem; }
+      .header-row { justify-content: center; }
     }
   </style>
 </head>
@@ -401,9 +508,12 @@
       </div>
       <p class="tagline">Smart Controlled Sharing</p>
       
-      <div class="nav-buttons" id="navButtons">
-        <button class="nav-btn active" onclick="app.setMode('upload')">📝 New Share</button>
-        <button class="nav-btn" onclick="app.setMode('dashboard')">👁️ Dashboard</button>
+      <div class="header-row" id="headerRow">
+        <div class="nav-buttons" id="navButtons">
+          <button class="nav-btn active" onclick="app.setMode('upload')">📝 New Share</button>
+          <button class="nav-btn" onclick="app.setMode('dashboard')">👁️ Dashboard</button>
+        </div>
+        <div id="userBadgeArea"></div>
       </div>
     </div>
     
@@ -448,37 +558,241 @@
     const app = {
       mode: 'upload',
       currentId: '',
+      currentEmbeddedShare: null,
       fileData: null,
       fileReadPromise: null,
       allShares: [],
       storage: createStorageAdapter(),
-      
+
+      /* ── Auth helpers ── */
+      _currentUser: null,
+
+      getSession() {
+        try {
+          const raw = sessionStorage.getItem('ll_session');
+          return raw ? JSON.parse(raw) : null;
+        } catch (e) { return null; }
+      },
+
+      saveSession(username) {
+        try { sessionStorage.setItem('ll_session', JSON.stringify({ username })); } catch (e) {}
+        this._currentUser = username;
+      },
+
+      clearSession() {
+        try { sessionStorage.removeItem('ll_session'); } catch (e) {}
+        this._currentUser = null;
+      },
+
+      /* Storage key scoped to the current user so shares are isolated */
+      userKey(key) {
+        return this._currentUser ? `u:${this._currentUser}:${key}` : key;
+      },
+
+      hashPassword(password) {
+        let hash = 5381;
+        for (let i = 0; i < password.length; i++) {
+          hash = ((hash << 5) + hash) ^ password.charCodeAt(i);
+          hash = hash >>> 0;
+        }
+        return hash.toString(36);
+      },
+
+      async register() {
+        const username = (document.getElementById('regUsername')?.value || '').trim().toLowerCase();
+        const password = document.getElementById('regPassword')?.value || '';
+        const confirm  = document.getElementById('regConfirm')?.value  || '';
+        const errorEl  = document.getElementById('authError');
+        const successEl = document.getElementById('authSuccess');
+        if (errorEl)   errorEl.style.display   = 'none';
+        if (successEl) successEl.style.display = 'none';
+
+        if (!username || username.length < 3) {
+          if (errorEl) { errorEl.textContent = 'Username must be at least 3 characters.'; errorEl.style.display = 'block'; }
+          return;
+        }
+        if (!/^[a-z0-9_]{3,20}$/.test(username)) {
+          if (errorEl) { errorEl.textContent = 'Username: 3-20 chars, letters, numbers, underscores only.'; errorEl.style.display = 'block'; }
+          return;
+        }
+        if (password.length < 6) {
+          if (errorEl) { errorEl.textContent = 'Password must be at least 6 characters.'; errorEl.style.display = 'block'; }
+          return;
+        }
+        if (password !== confirm) {
+          if (errorEl) { errorEl.textContent = 'Passwords do not match.'; errorEl.style.display = 'block'; }
+          return;
+        }
+
+        const existingRaw = localStorage.getItem(`linklock:account:${username}`);
+        if (existingRaw) {
+          if (errorEl) { errorEl.textContent = 'Username is already taken. Please choose another.'; errorEl.style.display = 'block'; }
+          return;
+        }
+
+        const account = { username, passwordHash: this.hashPassword(password), createdAt: Date.now() };
+        try {
+          localStorage.setItem(`linklock:account:${username}`, JSON.stringify(account));
+        } catch (e) {
+          if (errorEl) { errorEl.textContent = 'Registration failed — storage error.'; errorEl.style.display = 'block'; }
+          return;
+        }
+
+        if (successEl) { successEl.textContent = '🎉 Account created! Redirecting to login…'; successEl.style.display = 'block'; }
+        setTimeout(() => this.setMode('login'), 1200);
+      },
+
+      async login() {
+        const username = (document.getElementById('loginUsername')?.value || '').trim().toLowerCase();
+        const password = document.getElementById('loginPassword')?.value || '';
+        const errorEl  = document.getElementById('authError');
+        if (errorEl) errorEl.style.display = 'none';
+
+        if (!username || !password) {
+          if (errorEl) { errorEl.textContent = 'Please enter your username and password.'; errorEl.style.display = 'block'; }
+          return;
+        }
+
+        const raw = localStorage.getItem(`linklock:account:${username}`);
+        if (!raw) {
+          if (errorEl) { errorEl.textContent = 'Incorrect username or password.'; errorEl.style.display = 'block'; }
+          return;
+        }
+
+        let account;
+        try { account = JSON.parse(raw); } catch (e) {
+          if (errorEl) { errorEl.textContent = 'Account data corrupted. Please register again.'; errorEl.style.display = 'block'; }
+          return;
+        }
+
+        if (account.passwordHash !== this.hashPassword(password)) {
+          if (errorEl) { errorEl.textContent = 'Incorrect username or password.'; errorEl.style.display = 'block'; }
+          return;
+        }
+
+        this.saveSession(username);
+        this.updateUserBadge();
+        this.setMode('upload');
+      },
+
+      logout() {
+        this.clearSession();
+        this.updateUserBadge();
+        this.setMode('login');
+      },
+
+      updateUserBadge() {
+        const badgeArea  = document.getElementById('userBadgeArea');
+        const headerRow  = document.getElementById('headerRow');
+        const navButtons = document.getElementById('navButtons');
+        if (!badgeArea) return;
+        if (this._currentUser) {
+          badgeArea.innerHTML = `
+            <div class="user-badge">
+              👤 <span class="user-badge-name">${this.escapeHtml(this._currentUser)}</span>
+              <button class="btn btn-small btn-secondary" style="padding:0.3rem 0.75rem;font-size:0.8rem;" onclick="app.logout()">Sign Out</button>
+            </div>
+          `;
+          if (headerRow) headerRow.style.display = '';
+          if (navButtons) navButtons.style.display = '';
+        } else {
+          badgeArea.innerHTML = '';
+          if (navButtons) navButtons.style.display = 'none';
+        }
+      },
+
       init() {
-        // Check URL hash
+        const session = this.getSession();
+        if (session && session.username) {
+          this._currentUser = session.username;
+        }
+        this.updateUserBadge();
+
         const hash = window.location.hash;
-        if (hash.startsWith('#view/')) {
-          this.currentId = hash.replace('#view/', '');
+        const viewRoute = this.parseViewHash(hash);
+        if (viewRoute) {
+          this.currentId = viewRoute.id;
+          this.currentEmbeddedShare = viewRoute.embeddedShare;
           this.setMode('view');
         } else if (hash === '#dashboard') {
+          this.currentEmbeddedShare = null;
+          if (!this._currentUser) { this.setMode('login'); return; }
           this.setMode('dashboard');
         } else {
+          this.currentEmbeddedShare = null;
+          if (!this._currentUser) { this.setMode('login'); return; }
           this.render();
         }
+      },
+
+      parseViewHash(hash) {
+        if (!hash || !hash.startsWith('#view/')) return null;
+        const raw = hash.slice(6);
+        const queryStart = raw.indexOf('?');
+        const rawId = queryStart === -1 ? raw : raw.slice(0, queryStart);
+        const id = decodeURIComponent(rawId || '').trim();
+        if (!id) return null;
+        let embeddedShare = null;
+        if (queryStart !== -1) {
+          const params = new URLSearchParams(raw.slice(queryStart + 1));
+          embeddedShare = this.decodeSharePayload(params.get('d'));
+        }
+        return { id, embeddedShare };
+      },
+
+      decodeSharePayload(payload) {
+        if (!payload) return null;
+        try {
+          const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+          const padding = (4 - (normalized.length % 4)) % 4;
+          const base64 = normalized + '='.repeat(padding);
+          const binary = atob(base64);
+          const bytes = Uint8Array.from(binary, ch => ch.charCodeAt(0));
+          const json = new TextDecoder().decode(bytes);
+          const parsed = JSON.parse(json);
+          return parsed && parsed.id && parsed.content && parsed.rules ? parsed : null;
+        } catch (error) {
+          return null;
+        }
+      },
+
+      encodeSharePayload(share) {
+        try {
+          const json = JSON.stringify(share);
+          const bytes = new TextEncoder().encode(json);
+          let binary = '';
+          for (const byte of bytes) binary += String.fromCharCode(byte);
+          return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+        } catch (error) {
+          return null;
+        }
+      },
+
+      buildShareUrl(id, share) {
+        const baseUrl = window.location.origin + window.location.pathname + '#view/' + encodeURIComponent(id);
+        const payload = this.encodeSharePayload(share);
+        if (!payload || payload.length > 1800) return baseUrl;
+        return baseUrl + '?d=' + payload;
       },
       
       setMode(mode) {
         this.mode = mode;
         if (mode === 'dashboard') {
+          if (!this._currentUser) { this.mode = 'login'; this.render(); return; }
           this.loadDashboard();
+        }
+        if ((mode === 'upload' || mode === 'share') && !this._currentUser) {
+          this.mode = 'login';
         }
         this.render();
       },
       
       async loadDashboard() {
         try {
-          const result = await this.storage.get('owner_list');
+          const result = await this.storage.get(this.userKey('owner_list'));
           if (!result || !result.value) {
             this.allShares = [];
+            this.render();
             return;
           }
           
@@ -497,17 +811,18 @@
         } catch (error) {
           this.allShares = [];
         }
+        this.render();
       },
       
       render() {
         const container = document.getElementById('container');
         const navButtons = document.getElementById('navButtons');
         
-        // Update nav buttons
-        if (this.mode === 'view') {
-          navButtons.classList.add('hidden');
+        // Update nav buttons visibility
+        if (this.mode === 'view' || this.mode === 'login' || this.mode === 'register') {
+          if (navButtons) navButtons.classList.add('hidden');
         } else {
-          navButtons.classList.remove('hidden');
+          if (navButtons) navButtons.classList.remove('hidden');
           document.querySelectorAll('.nav-btn').forEach(btn => {
             btn.classList.remove('active');
           });
@@ -519,7 +834,11 @@
         }
         
         // Render content
-        if (this.mode === 'upload') {
+        if (this.mode === 'login') {
+          container.innerHTML = this.renderLogin();
+        } else if (this.mode === 'register') {
+          container.innerHTML = this.renderRegister();
+        } else if (this.mode === 'upload') {
           container.innerHTML = this.renderUpload();
         } else if (this.mode === 'share') {
           container.innerHTML = this.renderShare();
@@ -530,6 +849,60 @@
         } else if (this.mode === 'dashboard') {
           container.innerHTML = this.renderDashboard();
         }
+      },
+
+      renderLogin() {
+        return `
+          <div class="auth-card">
+            <div class="auth-title">Welcome back 👋</div>
+            <div class="auth-subtitle">Sign in to your LinkLock account</div>
+            <div id="authError" class="auth-error" style="display:none;"></div>
+            <div class="input-group">
+              <label for="loginUsername">Username</label>
+              <input type="text" id="loginUsername" placeholder="your_username" autocomplete="username"
+                     onkeydown="if(event.key==='Enter')app.login()">
+            </div>
+            <div class="input-group">
+              <label for="loginPassword">Password</label>
+              <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password"
+                     onkeydown="if(event.key==='Enter')app.login()">
+            </div>
+            <button class="btn" onclick="app.login()">🔓 Sign In</button>
+            <div class="auth-switch">
+              Don't have an account? <a onclick="app.setMode('register')">Create one</a>
+            </div>
+          </div>
+        `;
+      },
+
+      renderRegister() {
+        return `
+          <div class="auth-card">
+            <div class="auth-title">Create account ✨</div>
+            <div class="auth-subtitle">Join LinkLock — free, private, no email needed</div>
+            <div id="authError" class="auth-error" style="display:none;"></div>
+            <div id="authSuccess" class="auth-success" style="display:none;"></div>
+            <div class="input-group">
+              <label for="regUsername">Username <small style="color:#64748b;">(3-20 chars, letters/numbers/_)</small></label>
+              <input type="text" id="regUsername" placeholder="your_username" autocomplete="username"
+                     onkeydown="if(event.key==='Enter')app.register()">
+            </div>
+            <div class="input-group">
+              <label for="regPassword">Password <small style="color:#64748b;">(min 6 chars)</small></label>
+              <input type="password" id="regPassword" placeholder="••••••••" autocomplete="new-password"
+                     onkeydown="if(event.key==='Enter')app.register()">
+            </div>
+            <div class="input-group">
+              <label for="regConfirm">Confirm Password</label>
+              <input type="password" id="regConfirm" placeholder="••••••••" autocomplete="new-password"
+                     onkeydown="if(event.key==='Enter')app.register()">
+            </div>
+            <button class="btn" onclick="app.register()">🚀 Create Account</button>
+            <div class="auth-switch">
+              Already have an account? <a onclick="app.setMode('login')">Sign in</a>
+            </div>
+          </div>
+        `;
       },
       
       renderUpload() {
@@ -645,17 +1018,26 @@
           return;
         }
         
-        let share;
+        let share = this.currentEmbeddedShare && this.currentEmbeddedShare.id === id
+          ? JSON.parse(JSON.stringify(this.currentEmbeddedShare))
+          : null;
         try {
           const result = await this.storage.get(id);
-          if (!result || !result.value) {
+          if (result && result.value) {
+            share = JSON.parse(result.value);
+          } else if (!share) {
             container.innerHTML = this.renderViewError('🔍', 'Not Found', 'This share does not exist or has already been deleted.');
             return;
           }
-          share = JSON.parse(result.value);
         } catch (e) {
-          container.innerHTML = this.renderViewError('⚠️', 'Error', 'Failed to load share data. Please try again.');
-          return;
+          if (!share) {
+            container.innerHTML = this.renderViewError('⚠️', 'Error', 'Failed to load share data. Please try again.');
+            return;
+          }
+        }
+
+        if (!share.stats) {
+          share.stats = { viewCount: 0, createdAt: Date.now(), lastAccessed: null };
         }
         
         // Check expiry
@@ -744,11 +1126,11 @@
         
         if (willSelfDestruct) {
           await this.storage.delete(share.id);
-          const ownerListResult = await this.storage.get('owner_list');
+          const ownerListResult = await this.storage.get(this.userKey('owner_list'));
           if (ownerListResult && ownerListResult.value) {
             let ownerList = JSON.parse(ownerListResult.value);
             ownerList = ownerList.filter(i => i !== share.id);
-            await this.storage.set('owner_list', JSON.stringify(ownerList));
+            await this.storage.set(this.userKey('owner_list'), JSON.stringify(ownerList));
           }
         } else {
           await this.storage.set(share.id, JSON.stringify(share));
@@ -869,7 +1251,7 @@
         }
         
         const sharesHtml = this.allShares.map(share => {
-          const url = window.location.origin + window.location.pathname + '#view/' + share.id;
+          const url = this.buildShareUrl(share.id, share);
           const isExpired = share.rules.expiryTime && Date.now() > share.rules.expiryTime;
           const isLimitReached = share.rules.maxViews !== -1 && share.stats.viewCount >= share.rules.maxViews;
           
@@ -1044,12 +1426,12 @@
         
         await this.storage.set(id, JSON.stringify(contentObj));
         
-        const ownerListResult = await this.storage.get('owner_list');
+        const ownerListResult = await this.storage.get(this.userKey('owner_list'));
         const ownerList = ownerListResult && ownerListResult.value ? JSON.parse(ownerListResult.value) : [];
         ownerList.push(id);
-        await this.storage.set('owner_list', JSON.stringify(ownerList));
+        await this.storage.set(this.userKey('owner_list'), JSON.stringify(ownerList));
         
-        this.shareUrl = window.location.origin + window.location.pathname + '#view/' + id;
+        this.shareUrl = this.buildShareUrl(id, contentObj);
         this.currentId = id;
         this.mode = 'share';
         this.render();
@@ -1131,15 +1513,14 @@
         
         await this.storage.delete(id);
         
-        const ownerListResult = await this.storage.get('owner_list');
+        const ownerListResult = await this.storage.get(this.userKey('owner_list'));
         if (ownerListResult && ownerListResult.value) {
           let ownerList = JSON.parse(ownerListResult.value);
           ownerList = ownerList.filter(shareId => shareId !== id);
-          await this.storage.set('owner_list', JSON.stringify(ownerList));
+          await this.storage.set(this.userKey('owner_list'), JSON.stringify(ownerList));
         }
         
         await this.loadDashboard();
-        this.render();
       },
       
       reset() {
@@ -1148,16 +1529,6 @@
         this.mode = 'upload';
         window.location.hash = '';
         this.render();
-      },
-      
-      hashPassword(password) {
-        let hash = 0;
-        for (let i = 0; i < password.length; i++) {
-          const char = password.charCodeAt(i);
-          hash = ((hash << 5) - hash) + char;
-          hash = hash & hash;
-        }
-        return hash.toString(36);
       },
       
       escapeHtml(value) {
