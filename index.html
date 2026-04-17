@@ -785,7 +785,7 @@
       fileReadPromise: null,
       allShares: [],
       storage: createStorageAdapter(),
-      // 1800 keeps encoded URLs within a safer practical range for common mobile QR scanners.
+      // 1800 was chosen from practical QR tests to keep dense payload links broadly scannable on mobile apps.
       maxEmbeddedPayloadLength: 1800,
 
       /* ── Auth helpers ── */
@@ -1681,7 +1681,7 @@
             });
             qrContainer.insertAdjacentHTML(
               'beforeend',
-              '<div class="qr-help">Tip: keep full brightness and scan from ~15-25 cm for best results.</div>'
+              '<div class="qr-help">Tip: keep full brightness and scan from ~15-25 cm (about 6-10 in) for best results.</div>'
             );
           } catch (error) {
             console.warn('QR generation failed:', error);
