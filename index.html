@@ -785,7 +785,7 @@
       fileReadPromise: null,
       allShares: [],
       storage: createStorageAdapter(),
-      // 1800 was chosen from practical QR tests to keep dense payload links broadly scannable on mobile apps.
+      // 1800 (encoded payload length) was chosen from practical QR tests to keep dense payload links broadly scannable on mobile apps.
       // Above this limit, links fall back to ID-only URLs (no embedded payload), so storage lookup is required.
       maxEmbeddedPayloadLength: 1800,
 
@@ -995,11 +995,13 @@
       },
 
       buildShareUrl(id, share) {
-        const basePath = window.location.origin + window.location.pathname;
-        const hashPath = '#view/' + encodeURIComponent(id);
+        const url = new URL(window.location.origin + window.location.pathname);
         const payload = this.encodeSharePayload(share);
-        if (!payload || payload.length > this.maxEmbeddedPayloadLength) return basePath + hashPath;
-        return basePath + '?d=' + payload + hashPath;
+        if (payload && payload.length <= this.maxEmbeddedPayloadLength) {
+          url.searchParams.set('d', payload);
+        }
+        url.hash = 'view/' + encodeURIComponent(id);
+        return url.toString();
       },
       
       setMode(mode) {
@@ -1682,7 +1684,7 @@
             });
             qrContainer.insertAdjacentHTML(
               'beforeend',
-              '<div class="qr-help">Tip: keep full brightness and scan from ~15-25 cm (about 6-10 in) for best results.</div>'
+              '<div class="qr-help">Tip: keep full brightness and scan from ~15-25 cm (about 6-10 in.) for best results.</div>'
             );
           } catch (error) {
             console.warn('QR generation failed:', error);
