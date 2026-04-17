@@ -785,7 +785,7 @@
       fileReadPromise: null,
       allShares: [],
       storage: createStorageAdapter(),
-      // 1800 (encoded payload length) was chosen from practical QR tests to keep dense payload links broadly scannable on mobile apps.
+      // 1800 encoded payload characters was chosen from practical QR tests to keep dense payload links broadly scannable on mobile apps.
       // Above this limit, links fall back to ID-only URLs (no embedded payload), so storage lookup is required.
       maxEmbeddedPayloadLength: 1800,
 
@@ -960,8 +960,8 @@
         const currentUrlParams = new URLSearchParams(window.location.search);
         let embeddedShare = this.decodeSharePayload(currentUrlParams.get('d'));
         if (queryStart !== -1) {
-          const legacyHashParams = new URLSearchParams(raw.slice(queryStart + 1));
-          if (!embeddedShare) embeddedShare = this.decodeSharePayload(legacyHashParams.get('d'));
+          const hashFragmentParams = new URLSearchParams(raw.slice(queryStart + 1));
+          if (!embeddedShare) embeddedShare = this.decodeSharePayload(hashFragmentParams.get('d'));
         }
         return { id, embeddedShare };
       },
