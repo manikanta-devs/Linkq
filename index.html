@@ -785,6 +785,8 @@
       fileReadPromise: null,
       allShares: [],
       storage: createStorageAdapter(),
+      // Keep payload embedded only while URL size remains practical for common scanners/browsers.
+      maxEmbeddedPayloadLength: 2200,
 
       /* ── Auth helpers ── */
       _currentUser: null,
@@ -994,7 +996,7 @@
         const basePath = window.location.origin + window.location.pathname;
         const hashPath = '#view/' + encodeURIComponent(id);
         const payload = this.encodeSharePayload(share);
-        if (!payload || payload.length > 2200) return basePath + hashPath;
+        if (!payload || payload.length > this.maxEmbeddedPayloadLength) return basePath + hashPath;
         return basePath + '?d=' + payload + hashPath;
       },
       
@@ -1674,7 +1676,7 @@
               height: 320,
               colorDark: '#000000',
               colorLight: '#FFFFFF',
-              correctLevel: window.QRCode.CorrectLevel.M
+              correctLevel: window.QRCode.CorrectLevel.Q
             });
             qrContainer.insertAdjacentHTML(
               'beforeend',
