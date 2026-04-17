@@ -786,6 +786,7 @@
       allShares: [],
       storage: createStorageAdapter(),
       // 1800 was chosen from practical QR tests to keep dense payload links broadly scannable on mobile apps.
+      // Above this limit, links fall back to ID-only URLs (no embedded payload), so storage lookup is required.
       maxEmbeddedPayloadLength: 1800,
 
       /* ── Auth helpers ── */
