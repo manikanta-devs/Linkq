@@ -956,10 +956,11 @@
         const rawId = queryStart === -1 ? raw : raw.slice(0, queryStart);
         const id = decodeURIComponent(rawId || '').trim();
         if (!id) return null;
-        let embeddedShare = this.decodeSharePayload(new URLSearchParams(window.location.search).get('d'));
+        const currentUrlParams = new URLSearchParams(window.location.search);
+        let embeddedShare = this.decodeSharePayload(currentUrlParams.get('d'));
         if (queryStart !== -1) {
-          const params = new URLSearchParams(raw.slice(queryStart + 1));
-          if (!embeddedShare) embeddedShare = this.decodeSharePayload(params.get('d'));
+          const legacyHashParams = new URLSearchParams(raw.slice(queryStart + 1));
+          if (!embeddedShare) embeddedShare = this.decodeSharePayload(legacyHashParams.get('d'));
         }
         return { id, embeddedShare };
       },
@@ -1683,7 +1684,8 @@
               '<div class="qr-help">Tip: keep full brightness and scan from ~15–25 cm for best results.</div>'
             );
           } catch (error) {
-            qrContainer.innerHTML = '<div class="qr-fallback-message">Unable to generate QR code. Please shorten content and try again.</div>';
+            console.warn('QR generation failed:', error);
+            qrContainer.innerHTML = '<div class="qr-fallback-message">Unable to generate QR code. Please try again or use the share URL directly.</div>';
           }
           return;
         }
